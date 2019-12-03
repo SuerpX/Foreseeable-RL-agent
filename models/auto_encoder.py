@@ -81,13 +81,18 @@ class decoder(nn.Module):
         )
         self.cnntp_l3  =  nn.Sequential(
             nn.ConvTranspose2d(64, 128, kernel_size=(5, 5), stride = 2, padding = 1),
-#             nn.Sigmoid()
+#             nn.ReLU()
         )
         self.cnntp_l4  =  nn.Sequential(
             nn.ConvTranspose2d(128, output_len, kernel_size=(4, 4), stride = 2),
+#             nn.ReLU()
 #             nn.Sigmoid()
         )
         
+#         self.cnntp_l5  =  nn.Sequential(
+#             nn.ConvTranspose2d(128, 128, kernel_size=(3, 3), padding = 1),
+# #             nn.Sigmoid()
+#         )
     def forward(self, input):
         x = self.fc1(input)
         x = self.fc2(x)
@@ -98,8 +103,9 @@ class decoder(nn.Module):
 #         print(x.size())
         x = self.cnntp_l3(x)
 #         print(x.size())
+#         x = self.cnntp_l4(x)
+#         return self.cnntp_l5(x)
         return self.cnntp_l4(x)
-    
     
 class _AEModel(nn.Module):
     def __init__(self, input_len, z_len, action_len = 4):
@@ -161,6 +167,12 @@ class AEModel():
         self.optimizer.step()
         
         return loss.item()
+    
+    def loss_only(self, predict, ground_truth):
+#         print(predict.size())
+#         print(ground_truth.size())
+        loss = self.loss_fn(predict, ground_truth)
+        return loss
     
     def save(self, path):
         torch.save(self.aemodel.state_dict(), path)

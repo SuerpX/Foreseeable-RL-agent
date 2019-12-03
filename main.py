@@ -40,7 +40,8 @@ def main():
     training_episodes, test_interval = 1000000, 2000
     
     ae_dqn_agent = AE_DQN_agent(env, hyperparams)
-    ae_dqn_agent.load_ae_model()
+    ae_dqn_agent.load_model_best_dqn()
+    ae_dqn_agent.load_model_best_ae()
     result = ae_dqn_agent.learn_and_evaluate(training_episodes, test_interval)
     
 if __name__ == "__main__":

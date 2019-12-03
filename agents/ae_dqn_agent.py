@@ -8,10 +8,11 @@ import math
 import cv2
 from tensorboardX import SummaryWriter
 
-from models.dqn_model import DQNModel
-from models.auto_encoder import AEModel
+# from models.dqn_model import DQNModel
+from models.auto_encoder import AEModel, encoder
+from models.encoder_dqn import EDQNModel 
 from memory.memory import ReplayBuffer
-
+from torch.optim import Adam
 from utils import clear_summary_path
 ACTION_DICT = {
     "STOP": 0,
@@ -42,11 +43,16 @@ class AE_DQN_agent(object):
         state = env.reset()
         input_len = len(state['depth'])
         output_len = action_space
-        self.eval_model = DQNModel(input_len, output_len, learning_rate = hyper_params['learning_rate'])
+        
+        self.ae_model = AEModel(1, 2048, learning_rate = hyper_params['learning_rate'])
+        self.AE_train_epoch = hyper_params['AE_train_epoch']
+         
+        self.eval_model = EDQNModel(2048, self.ae_model.aemodel.emodel, 1, learning_rate = hyper_params['learning_rate'])
         self.use_target_model = hyper_params['use_target_model']
         
         if self.use_target_model:
-            self.target_model = DQNModel(input_len, output_len)
+            self.target_encoder = encoder(1, 2048)
+            self.target_model = EDQNModel(2048, self.target_encoder, 1, learning_rate = hyper_params['learning_rate'])
 #         memory: Store and sample experience replay.
         self.memory = ReplayBuffer(hyper_params['memory_size'])
         
@@ -61,13 +67,14 @@ class AE_DQN_agent(object):
         clear_summary_path('dqn_agent_summary/')
         self.summary = SummaryWriter(log_dir = 'dqn_agent_summary/')
         
-        self.ae_model = AEModel(1, 2048, learning_rate = hyper_params['learning_rate'])
-        self.AE_train_epoch = hyper_params['AE_train_epoch']
+        params = list(self.ae_model.aemodel.parameters()) + list(self.eval_model.edqnmodel.parameters())
+        self.optimizer = Adam(params, lr = 0.0001)
+
     
     def eval_mode(self):
         self.ae_model.aemodel.eval()
-        self.eval_model.model.eval()
-        self.target_model.model.eval()
+        self.eval_model.edqnmodel.eval()
+        self.target_model.edqnmodel.eval()
     # Linear decrease function for epsilon
     def linear_decrease(self, initial_value, final_value, curr_steps, final_decay_steps):
         decay_rate = curr_steps / final_decay_steps
@@ -115,32 +122,53 @@ class AE_DQN_agent(object):
          is_terminal) = batch
         
         states = states
-        next_states = next_states
+        next_states = FloatTensor(next_states)
         terminal = FloatTensor([1 if t else 0 for t in is_terminal])
         reward = FloatTensor(reward)
         batch_index = torch.arange(self.batch_size,
                                    dtype=torch.long)
-        
+        actions = LongTensor(actions)
+#         print(actions)
+        actions_vector = FloatTensor(np.zeros((self.batch_size, self.action_space)))
+        actions_vector[batch_index, actions] = 1
         # Current Q Values
-        q_values = self.eval_model.predict_batch(states)
-        q_values = q_values[batch_index, actions]
+        q_values = self.eval_model.predict_batch(states, actions_vector).squeeze()
+        predict_next_state = self.ae_model.predict_batch(states, actions_vector)
         
         # Calculate target
         if self.use_target_model:
-            q_next = self.target_model.predict_batch(next_states)
+            target_actions = FloatTensor(np.zeros((self.batch_size * self.action_space, self.action_space)))
+            for i in range(self.action_space):
+                target_actions[self.batch_size * i : self.batch_size * (i + 1), i] = 1
+#             print(target_actions)
+            q_next = self.target_model.predict_batch(next_states, target_actions)
         else:
             q_next = self.eval_model.predict_batch(next_states)
             
+        q_next_target = FloatTensor(np.zeros((self.batch_size, self.action_space)))
+        for i in range(self.batch_size):
+            idx = LongTensor(np.array([0, 1, 2, 3]))
+            idx *= self.batch_size
+            idx += i
+            q_next_target[i, :] = q_next[idx, 0]
+#         print(q_next)
+#         print(q_next_target)
         
-        q_max, _ = torch.max(q_next, dim = 1)
+        q_max, _ = torch.max(q_next_target, dim = 1)
         q_max = (1 - terminal) * q_max
         q_target = reward + self.beta * q_max
+
+#         loss = self.eval_model.fit(q_values, q_target)
+#         loss = self.ae_model.fit(predict_next_state, next_states)
+        loss_1 = self.eval_model.loss_only(q_values, q_target)
+        loss_2 = self.ae_model.loss_only(predict_next_state, next_states)
+        loss = loss_1 + loss_2
         
-#         print(reward)
-        # update model
-#         start = time.time()
-        loss = self.eval_model.fit(q_values, q_target)
-        self.summary.add_scalar("loss", float(loss), self.steps)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
+        self.summary.add_scalar("loss", float(loss.item()), self.steps)
 #         print(time.time() - start)
     
     def update_batch_ae(self):
@@ -198,9 +226,9 @@ class AE_DQN_agent(object):
         
         for i in range(test_number):
             # learn
-            self.learn_ae()
-            print(self.steps)
-            self.steps = 0
+#             self.learn_ae()
+#             print(self.steps)
+#             self.steps = 0
             self.learn_all(test_interval)
             print(self.steps)
             # evaluate
@@ -212,7 +240,7 @@ class AE_DQN_agent(object):
     def learn_ae(self):
         for episode in tqdm(range(self.AE_train_epoch), desc="Training AE"):
             if (episode + 1) % 200 == 0:
-                self.save_ae_model()
+                self.save_model_best_ae()
             state = self.env.reset()
             done = False
             steps = 0
@@ -310,26 +338,35 @@ class AE_DQN_agent(object):
         f.close()
         if avg_reward >= self.best_reward:
             self.best_reward = avg_reward
-            self.save_model_best()
-        self.save_model()
+            self.save_model_best_dqn()
+            self.save_model_best_ae()
+        self.save_model_temp_dqn()
+        self.save_model_temp_ae()
         return avg_reward
 
     # save model
-    def save_model_best(self):
-        self.eval_model.save('save_models/best_model.pt')
+    def save_model_best_dqn(self):
+        self.eval_model.save('save_models/best_model_dqn.pt')
         
-    def save_model(self):
-        self.eval_model.save('save_models/temp_model.pt') 
+    def save_model_temp_dqn(self):
+        self.eval_model.save('save_models/temp_model_dqn.pt') 
         
-    def save_ae_model(self):
-        self.ae_model.save('save_models/ae_model.pt') 
+    def save_model_best_ae(self):
+        self.ae_model.save('save_models/best_model_ae.pt') 
+        
+    def save_model_temp_ae(self):
+        self.ae_model.save('save_models/temp_model_ae.pt')
+        
     # load model
-    def load_model_best(self):
-        self.eval_model.load('save_models/best_model.pt')
+    def load_model_best_dqn(self):
+        self.eval_model.load('save_models/best_model_dqn.pt')
         
-    def load_model(self):
-        self.eval_model.load('save_models/temp_model.pt')
+    def load_model_temp_dqn(self):
+        self.eval_model.load('save_models/temp_model_dqn.pt') 
         
-    def load_ae_model(self):
-        self.ae_model.load('save_models/ae_model.pt') 
-        print("loaded ae model")
+    def load_model_best_ae(self):
+        print("loaded best ae model")
+        self.ae_model.load('save_models/best_model_ae.pt') 
+        
+    def load_model_temp_ae(self):
+        self.ae_model.load('save_models/temp_model_ae.pt')

@@ -1,7 +1,7 @@
 import habitat
 import cv2
 from typing import Any
-from agents.ae_dqn_agent import AE_DQN_agent
+from agents.mb_ts_agent import MBTSAgent
 
 import numpy as np
 from gym import spaces
@@ -15,13 +15,19 @@ FORWARD_KEY="w"
 LEFT_KEY="a"
 RIGHT_KEY="d"
 FINISH="f"
-
+AGENT="s" 
 VIEW_FORWARD_KEY="u"
 VIEW_LEFT_KEY="h"
 VIEW_RIGHT_KEY="k"
 VIEW_FINISH="j"
+VIEW_AGENT="v"
 
-
+ACTION_DICT_REVERSE = {
+    0 : "STOP",
+    1 : "FORWARD",
+    2 : "LEFT",
+    3 : "RIGHT"
+}
 hyperparams = {
     'epsilon_decay_steps' : 500000, 
     'final_epsilon' : 0.05,
@@ -127,10 +133,8 @@ def example():
         config=config
     )
     with torch.no_grad():
-        agent = AE_DQN_agent(env, hyperparams)
-        agent.load_ae_model()
-        agent.eval_mode()
-#     agent.load_model()
+        agent = MBTSAgent(max_depth = 3)
+        
     print("Environment creation successful")
     observations = env.reset()
 #     print(observations)
@@ -142,6 +146,7 @@ def example():
     print(env.observation_space)
     count_steps = 0
     view_flag = False
+    action = None
     while not env.episode_over:
         keystroke = cv2.waitKey(0)
         
@@ -161,71 +166,33 @@ def example():
             action = 0#habitat.SimulatorActions.STOP
             print("action: FINISH")
             view_flag = False
-#         elif keystroke == ord(AGENT):
-#             state_depth = observations['depth'].swapaxes(0, 2).swapaxes(1, 2)
-# #             action = agent.greedy_policy(state_depth)
-#             action_vector = 
-#             action, q = agent.eval_model.predict(state_depth)
+        elif keystroke == ord(AGENT):
+            state_depth = observations['depth'].swapaxes(0, 2).swapaxes(1, 2)
+#             action = agent.greedy_policy(state_depth)
+            action, q = agent.predict(state_depth)
+            view_flag = False
+            print("Agent action: {}".format(ACTION_DICT_REVERSE[action]))
 #             print(q)
         elif keystroke == ord(VIEW_FORWARD_KEY):
-            action = np.array([0, 1, 0, 0])
-            if view_flag:
-                state_depth = view_obs.swapaxes(0, 2).swapaxes(1, 2)
-            else:
-                state_depth = observations['depth'].swapaxes(0, 2).swapaxes(1, 2)
-                view_flag = True 
+            agent.show_future(0)
+            continue
         elif keystroke == ord(VIEW_LEFT_KEY):
-            action = np.array([0, 0, 1, 0])
-            if view_flag:
-                state_depth = view_obs.swapaxes(0, 2).swapaxes(1, 2)
-            else:
-                state_depth = observations['depth'].swapaxes(0, 2).swapaxes(1, 2)
-                view_flag = True 
+            agent.show_future(1)
+            continue
         elif keystroke == ord(VIEW_RIGHT_KEY):
-            action = np.array([0, 0, 0, 1])
-            if view_flag:
-                state_depth = view_obs.swapaxes(0, 2).swapaxes(1, 2)
-            else:
-                state_depth = observations['depth'].swapaxes(0, 2).swapaxes(1, 2)
-                view_flag = True 
+            agent.show_future(2)
+            continue
         elif keystroke == ord(VIEW_FINISH):
-            action = np.array([1, 0, 0, 0])
-            if view_flag:
-                state_depth = view_obs.swapaxes(0, 2).swapaxes(1, 2)
-            else:
-                state_depth = observations['depth'].swapaxes(0, 2).swapaxes(1, 2)
-                view_flag = True 
+            continue
+        elif keystroke == ord(VIEW_AGENT):
+            agent.show_future()
+            continue
         else:
             print("INVALID KEY")
             continue
-        
-        if view_flag:
-            with torch.no_grad():
-                
-#                 print(state_depth)
-#                 print(state_depth.shape)
-#                 state_depth = observations['depth'].swapaxes(0, 2).swapaxes(1, 2)
-                action = FloatTensor(action)
-                view_obs = agent.ae_model.predict(state_depth, action)[0]
-                view_obs = view_obs.detach().cpu().numpy().swapaxes(0, 2).swapaxes(0, 1)
-#                 print(view_obs.shape)
-                
-                view_obs = np.clip(view_obs, 0, 1)
-#                 print(view_obs)
-            cv2.imshow("view", view_obs)
-            continue
             
         observations = env.step(action)
-#         reward, done = agent.reward_func(observations, action)
-#         print(reward, done)
         count_steps += 1
-#         env = habitat.Env(
-#             config=config
-#         )
-#         observations = env.reset()
-# x:1.9, y: 0.17
-#         print("Destination, distance: {:3f}, theta(radians): {:.2f}".format(
-#             observations["pointgoal_with_gps_compass"][0], observations["pointgoal_with_gps_compass"][1]))
         print("x: {}, y: {}".format(
             observations["agent_position"][0], observations["agent_position"][2]))
         cv2.imshow("", observations["depth"])#transform_rgb_bgr(observations["rgb"]))

@@ -129,6 +129,8 @@ def example():
     )
     with torch.no_grad():
         agent = AE_DQN_agent(env, hyperparams)
+#         agent.load_model_best_ae()
+#         agent.load_model_best_dqn()
         agent.load_model_best_ae()
         agent.load_model_best_dqn()
         agent.eval_mode()
