@@ -24,6 +24,7 @@ class Node():
         self.best_child = None
         self.best_action = None
         self.parent_action = parent_action
+        self.final_state = None
         
     def add_child(self, sub_node, action = None):
         self.children.append(sub_node)

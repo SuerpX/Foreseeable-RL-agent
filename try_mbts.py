@@ -2,10 +2,11 @@ import habitat
 import cv2
 from typing import Any
 from agents.mb_ts_agent import MBTSAgent
-
+import sys
 import numpy as np
 from gym import spaces
 import torch
+import math
 
 use_cuda = torch.cuda.is_available()
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
@@ -21,6 +22,7 @@ VIEW_LEFT_KEY="h"
 VIEW_RIGHT_KEY="k"
 VIEW_FINISH="j"
 VIEW_AGENT="v"
+RESET = "r"
 
 ACTION_DICT_REVERSE = {
     0 : "STOP",
@@ -129,27 +131,37 @@ def example():
     config.TASK.SENSORS.append("AGENT_POSITION_SENSOR")
     config.freeze()
     
+    if len(sys.argv) > 1:
+        max_depth = int(sys.argv[1])
+    else:
+        max_depth = 3
     env = habitat.Env(
         config=config
     )
     with torch.no_grad():
-        agent = MBTSAgent(max_depth = 3)
+        agent = MBTSAgent(max_depth = max_depth)
         
     print("Environment creation successful")
     observations = env.reset()
-#     print(observations)
-    print("Destination, distance: {:3f}, theta(radians): {:.2f}".format(
-        observations["pointgoal_with_gps_compass"][0], observations["pointgoal_with_gps_compass"][1]))
+    
     cv2.imshow("", observations["depth"])#transform_rgb_bgr(observations["rgb"]))
     
     print("Agent stepping around inside environment.")
-    print(env.observation_space)
+    print("==========================================")
+    print("Search tree depth : {}".format(max_depth))
+#     print(env.observation_space)
     count_steps = 0
     view_flag = False
     action = None
     while not env.episode_over:
         keystroke = cv2.waitKey(0)
-        
+            
+        if keystroke == ord(RESET):
+            observations = env.reset()
+            count_steps = 0
+            view_flag = False
+            action = None
+            cv2.imshow("", observations["depth"])
         if keystroke == ord(FORWARD_KEY):
             action = 1#habitat.SimulatorActions.MOVE_FORWARD
             print("action: FORWARD")
@@ -199,10 +211,15 @@ def example():
 
     print("Episode finished after {} steps.".format(count_steps))
 
-    if action == 0 and observations["pointgoal_with_gps_compass"][0] < 0.2:
-        print("you successfully navigated to destination point")
-    else:
-        print("your navigation was unsuccessful")
+    if action == 0:
+        pos_x, pos_y = observations['agent_position'][0], observations['agent_position'][2]
+        goal_x, goal_y = 2, 12
+        dist = math.sqrt((pos_x - goal_x) ** 2 + (pos_y - goal_y) ** 2)
+        if dist < 2:
+            print("you successfully navigated to destination point")
+        else:
+            print(dist)
+            print("your navigation was unsuccessful")
 
 
 if __name__ == "__main__":

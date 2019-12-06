@@ -252,10 +252,15 @@ def example():
 
     print("Episode finished after {} steps.".format(count_steps))
 
-    if action == 0 and observations["pointgoal_with_gps_compass"][0] < 0.2:
-        print("you successfully navigated to destination point")
-    else:
-        print("your navigation was unsuccessful")
+    if action == 0:
+        pos_x, pos_y = observations['agent_position'][0], observations['agent_position'][2]
+        goal_x, goal_y = 2, 12
+        dist = math.sqrt((pos_x - goal_x) ** 2 + (pos_y - goal_y) ** 2)
+        if dist < 2:
+            print("you successfully navigated to destination point")
+        else:
+            print(dist)
+            print("your navigation was unsuccessful")
 
 
 if __name__ == "__main__":

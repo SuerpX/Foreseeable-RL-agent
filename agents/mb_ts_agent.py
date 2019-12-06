@@ -59,8 +59,8 @@ class MBTSAgent():
         self.dqn_model.edqnmodel.eval()
     
     def reward_func(self):
-        return -3
-    def tree_search(self, current_state, last_action, parent = None, depth = 1):
+        return -2.5
+    def tree_search(self, current_state, last_action, parent = None, depth = 0):
         # (self, name, state, reward = 0, parent = None, parent_action = None, best_q_value = None):
         if parent is None:
             parent = Node("level_{}_action_{}".format(depth, None), current_state.detach().cpu().numpy())
@@ -78,9 +78,9 @@ class MBTSAgent():
         if depth < self.max_depth:
 #             if depth != 0:
 #                 tqdm.disable()
-            for ns, a in tqdm(zip(next_states, actions), disable=os.environ.get("DISABLE_TQDM", depth != 1), total = len(actions)):
-                if (last_action == 2 and a.item() == 3) or (last_action == 3 and a.item() == 2):
-                    continue
+            for ns, a in tqdm(zip(next_states, actions), disable=os.environ.get("DISABLE_TQDM", depth != 0), total = len(actions)):
+#                 if (last_action == 2 and a.item() == 3) or (last_action == 3 and a.item() == 2):
+#                     continue
                 action_name = ACTION_DICT_REVERSE[a.item()]
                 child = Node("level_{}_action_{}".format(depth + 1, a), ns.detach().cpu().numpy(), parent = parent, action_name = action_name)
                 best_q_value, _, _ = self.tree_search(ns, a, parent = child, depth = depth + 1)
@@ -88,6 +88,8 @@ class MBTSAgent():
                 best_q_value += self.reward_func()
 #                 if depth == 0:
 #                     print(best_q_value, best_action)
+                if (last_action == 2 and a.item() == 3) or (last_action == 3 and a.item() == 2):
+                    continue
                 if best_q_value > best_q:
                     best_q = best_q_value
                     best_a = a.item()
@@ -102,6 +104,7 @@ class MBTSAgent():
                 best_a = a
 #             if depth == 1:
 #                 print("finish", best_q_value)
+#                 print("best", best_q)
         else:
             best_a, q_value = self.dqn_model.predict(current_state)
             best_q = q_value.max(0)[0]
@@ -111,6 +114,7 @@ class MBTSAgent():
         parent.best_action = best_a
 #         print(last_action, best_a)
 #         print(best_a)
+
         return best_q, best_a, parent
     
     def eval_finish_action(self, ns):
@@ -152,20 +156,23 @@ class MBTSAgent():
         print("Foreseeable action:")
         if key is None:
             best_child = self.root.best_child
-            title = ACTION_DICT_REVERSE[self.root.best_action]
+            title = "if " +  ACTION_DICT_REVERSE[self.root.best_action]
         else:
             best_child = self.root.children[key]
-            title = ACTION_DICT_REVERSE[key + 1]
+            title = "if " + ACTION_DICT_REVERSE[key + 1]
         cv2.imshow(title, self.current_state.swapaxes(0, 2).swapaxes(0, 1))
-        print("the agent move: {}".format(title))
+        print("If the agent move: {}".format(title))
         cv2.waitKey(1000)
         count = 1
         while best_child is not None:
             obs = best_child.state.swapaxes(0, 2).swapaxes(0, 1)
             cv2.imshow(title, obs)
-            print("Foreseeable future {} step: {}".format(count, ACTION_DICT_REVERSE[best_child.best_action]))
+            
+            if best_child.best_child is not None:
+                print("Foreseeable future {} step: {}".format(count, ACTION_DICT_REVERSE[best_child.best_action]))
             count += 1
 #             print(obs)
             cv2.waitKey(1000)
             best_child = best_child.best_child
+        
 #         print()
